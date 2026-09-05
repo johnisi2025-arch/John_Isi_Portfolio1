@@ -1,0 +1,108 @@
+name: L42W Python 3.11.16 Bootstrap
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prepare public dependency inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          cat > work/runtime.in <<'EOF'
+          fastapi==0.115.0
+          uvicorn[standard]==0.30.0
+          SQLAlchemy==2.0.29
+          alembic==1.13.1
+          psycopg2-binary==2.9.9
+          pydantic==2.7.0
+          pydantic-settings==2.2.1
+          python-dotenv==1.0.1
+          python-jose[cryptography]==3.3.0
+          passlib[bcrypt]==1.7.4
+          email-validator==2.2.0
+          python-multipart==0.0.9
+          httpx==0.27.0
+          PGPy==0.6.0
+          pytest==8.3.5
+          reportlab==4.4.9
+          PyJWT
+          cachetools
+          boto3
+          requests
+          cryptography
+          EOF
+          cat > work/certification.in <<'EOF'
+          -r runtime.in
+          prometheus-client
+          python-dateutil
+          pytest
+          EOF
+          cat > work/optional-redis.in <<'EOF'
+          redis
+          EOF
+
+      - name: Pull and verify exact Python production image
+        shell: bash
+        run: |
+          set -euo pipefail
+          IMAGE='python:3.11.16-slim-bookworm@sha256:528257d48c1da0dcecc2e725d1ae34498d60c965f1241e39cd6a85a8859bdf84'
+          docker pull "$IMAGE"
+          docker image inspect "$IMAGE" > work/python-image-inspect.json
+          docker run --rm "$IMAGE" python -VV | tee work/python-version.txt
+          grep -F 'Python 3.11.16' work/python-version.txt
+
+      - name: Resolve hash locks and public wheelhouse under exact Python 3.11.16
+        shell: bash
+        run: |
+          set -euo pipefail
+          IMAGE='python:3.11.16-slim-bookworm@sha256:528257d48c1da0dcecc2e725d1ae34498d60c965f1241e39cd6a85a8859bdf84'
+          docker run --rm -v "$PWD/work:/work" "$IMAGE" sh -lc '
+            set -euo pipefail
+            python -m pip install --upgrade pip==26.2.1 pip-tools==7.6.1
+            cd /work
+            pip-compile --generate-hashes --resolver=backtracking --output-file=runtime-py311.lock runtime.in
+            pip-compile --generate-hashes --resolver=backtracking --output-file=certification-py311.lock certification.in
+            pip-compile --generate-hashes --resolver=backtracking --output-file=optional-redis-py311.lock optional-redis.in
+            mkdir -p wheelhouse/certification wheelhouse/optional tooling
+            python -m pip download --require-hashes -r certification-py311.lock -d wheelhouse/certification
+            python -m pip download --require-hashes -r optional-redis-py311.lock -d wheelhouse/optional
+            python -m pip download pip==26.2.1 pip-tools==7.6.1 -d tooling
+          '
+          cp work/runtime-py311.lock work/runtime-py311.lock.first
+          docker run --rm -v "$PWD/work:/work" "$IMAGE" sh -lc '
+            set -euo pipefail
+            python -m pip install --upgrade pip==26.2.1 pip-tools==7.6.1 >/dev/null
+            cd /work
+            pip-compile --generate-hashes --resolver=backtracking --output-file=runtime-py311.lock.second runtime.in
+          '
+          cmp work/runtime-py311.lock.first work/runtime-py311.lock.second
+          mv work/runtime-py311.lock.first work/runtime-py311.lock
+          rm work/runtime-py311.lock.second
+
+      - name: Export exact Python 3.11.16 root filesystem
+        shell: bash
+        run: |
+          set -euo pipefail
+          IMAGE='python:3.11.16-slim-bookworm@sha256:528257d48c1da0dcecc2e725d1ae34498d60c965f1241e39cd6a85a8859bdf84'
+          cid=$(docker create "$IMAGE")
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          docker export "$cid" | gzip -9 > work/python31116-rootfs.tar.gz
+          sha256sum work/python31116-rootfs.tar.gz > work/python31116-rootfs.tar.gz.sha256
+          find work/wheelhouse work/tooling -type f -print0 | sort -z | xargs -0 sha256sum > work/wheelhouse-SHA256SUMS.txt
+
+      - name: Upload exact runtime bootstrap artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: l42w-python31116-bootstrap
+          path: work/
+          retention-days: 1
+          compression-level: 0
