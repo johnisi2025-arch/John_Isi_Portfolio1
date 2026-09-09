@@ -49,6 +49,7 @@ jobs:
           reportlab==4.4.9
           prometheus-client==0.25.0
           python-dateutil==2.9.0.post0
+          httpx2==2.12.0
           EOF
           cat > optional-redis.in <<'EOF'
           redis==7.4.1
