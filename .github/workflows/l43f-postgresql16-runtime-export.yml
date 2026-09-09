@@ -1,0 +1,42 @@
+name: L43F PostgreSQL 16.15 Runtime Export
+
+on:
+  push:
+    branches:
+      - l43f-python3147-runtime-bootstrap
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export-postgresql16:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Export exact PostgreSQL 16.15 Bookworm runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          image='postgres:16.15-bookworm'
+          docker pull "$image"
+          docker image inspect "$image" > postgresql16-image-inspect.json
+          digest="$(docker image inspect --format='{{index .RepoDigests 0}}' "$image")"
+          printf '%s\n' "$digest" | tee postgresql16-image-digest.txt
+          docker run --rm "$image" postgres --version | tee postgresql16-version.txt
+          cid="$(docker create "$image")"
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          docker export "$cid" | gzip -1 > postgresql16-rootfs.tar.gz
+          sha256sum postgresql16-rootfs.tar.gz postgresql16-image-inspect.json postgresql16-image-digest.txt postgresql16-version.txt | sort -k2 > postgresql16-runtime-sha256.txt
+      - name: Upload PostgreSQL runtime artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: l43f-postgresql16-rootfs
+          path: |
+            postgresql16-rootfs.tar.gz
+            postgresql16-image-inspect.json
+            postgresql16-image-digest.txt
+            postgresql16-version.txt
+            postgresql16-runtime-sha256.txt
+          if-no-files-found: error
+          retention-days: 1
