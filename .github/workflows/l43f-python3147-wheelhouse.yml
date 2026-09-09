@@ -1,0 +1,83 @@
+name: L43F Python 3.14.7 Public Wheelhouse
+
+on:
+  push:
+    branches:
+      - l43f-python3147-runtime-bootstrap
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wheelhouse:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14.7'
+          check-latest: true
+      - name: Resolve exact public dependency set
+        shell: bash
+        run: |
+          set -euo pipefail
+          python --version
+          cat > runtime.in <<'EOF'
+          fastapi==0.115.0
+          uvicorn[standard]==0.30.0
+          SQLAlchemy==2.0.29
+          alembic==1.13.1
+          psycopg2-binary==2.9.12
+          pydantic==2.13.4
+          pydantic-settings==2.14.1
+          python-dotenv==1.0.1
+          python-jose[cryptography]==3.3.0
+          passlib[bcrypt]==1.7.4
+          email-validator==2.2.0
+          python-multipart==0.0.9
+          httpx==0.27.0
+          PGPy==0.6.0
+          PyJWT==2.13.0
+          boto3==1.43.18
+          cachetools==7.1.4
+          requests==2.32.5
+          EOF
+          cat > certification.in <<'EOF'
+          pytest==8.3.5
+          reportlab==4.4.9
+          prometheus-client==0.25.0
+          python-dateutil==2.9.0.post0
+          EOF
+          cat > optional-redis.in <<'EOF'
+          redis==7.4.1
+          EOF
+          python -m pip install --upgrade pip
+          mkdir -p wheelhouse
+          python -m pip download --dest wheelhouse -r runtime.in -r certification.in -r optional-redis.in
+          python -m venv verify-venv
+          verify-venv/bin/python -m pip install --no-index --find-links wheelhouse -r runtime.in -r certification.in -r optional-redis.in
+          verify-venv/bin/python -m pip check | tee pip-check.txt
+          verify-venv/bin/python -m pip freeze --all | sort -f > installed-freeze-py314.txt
+          verify-venv/bin/python - <<'PY'
+          import json, platform, sys
+          from importlib import metadata
+          rows=[]
+          for d in sorted(metadata.distributions(), key=lambda x: (x.metadata.get('Name') or '').lower()):
+              n=d.metadata.get('Name')
+              if n:
+                  rows.append({'name':n,'version':d.version})
+          open('resolved-distributions.json','w').write(json.dumps({'python':sys.version,'platform':platform.platform(),'distributions':rows},indent=2,sort_keys=True)+'\n')
+          PY
+          sha256sum wheelhouse/* | sort -k2 > wheelhouse-sha256.txt
+          tar -czf l43f-python3147-public-wheelhouse.tar.gz wheelhouse runtime.in certification.in optional-redis.in pip-check.txt installed-freeze-py314.txt resolved-distributions.json wheelhouse-sha256.txt
+          sha256sum l43f-python3147-public-wheelhouse.tar.gz > l43f-python3147-public-wheelhouse.tar.gz.sha256
+      - name: Upload wheelhouse artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: l43f-python3147-public-wheelhouse
+          path: |
+            l43f-python3147-public-wheelhouse.tar.gz
+            l43f-python3147-public-wheelhouse.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 1
