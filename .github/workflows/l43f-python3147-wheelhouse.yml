@@ -26,7 +26,7 @@ jobs:
           cat > runtime.in <<'EOF'
           fastapi==0.115.0
           uvicorn[standard]==0.30.0
-          SQLAlchemy==2.0.29
+          SQLAlchemy==2.0.52
           alembic==1.13.1
           psycopg2-binary==2.9.12
           pydantic==2.13.4
