@@ -1,0 +1,54 @@
+name: L43F Python 3.11.16 Genealogy Runtime Bootstrap
+
+on:
+  push:
+    branches:
+      - l43f-python3147-runtime-bootstrap
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package-runtime:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up exact CPython 3.11.16
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11.16'
+          check-latest: true
+      - name: Verify and package runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python --version
+          python - <<'PY'
+          import json, platform, sys, sysconfig
+          assert sys.version_info[:3] == (3, 11, 16), sys.version
+          data = {
+              'python': sys.version,
+              'executable': sys.executable,
+              'prefix': sys.prefix,
+              'platform': platform.platform(),
+              'machine': platform.machine(),
+              'soabi': sysconfig.get_config_var('SOABI'),
+          }
+          open('python31116-runtime-attestation.json','w').write(json.dumps(data, indent=2, sort_keys=True)+'\n')
+          PY
+          PREFIX="$(python -c 'import sys; print(sys.prefix)')"
+          PARENT="$(dirname "$PREFIX")"
+          BASE="$(basename "$PREFIX")"
+          tar -C "$PARENT" -czf python31116-linux-x64-runtime.tar.gz "$BASE"
+          sha256sum python31116-linux-x64-runtime.tar.gz > python31116-linux-x64-runtime.tar.gz.sha256
+      - name: Upload exact runtime artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: l43f-python31116-linux-x64-runtime
+          path: |
+            python31116-linux-x64-runtime.tar.gz
+            python31116-linux-x64-runtime.tar.gz.sha256
+            python31116-runtime-attestation.json
+          if-no-files-found: error
+          retention-days: 1
