@@ -24,7 +24,7 @@ jobs:
           set -euo pipefail
           python --version
           cat > runtime.in <<'EOF'
-          fastapi==0.141.1
+          fastapi==0.136.1
           starlette==1.3.1
           uvicorn[standard]==0.30.0
           SQLAlchemy==2.0.52
