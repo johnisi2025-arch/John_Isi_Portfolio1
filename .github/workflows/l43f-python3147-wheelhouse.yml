@@ -54,6 +54,9 @@ jobs:
           EOF
           python -m pip install --upgrade pip
           mkdir -p wheelhouse
+          # PGPy 0.6.0 is sdist-only. Include its build dependencies so the
+          # offline verification environment can build the same source archive.
+          python -m pip download --dest wheelhouse setuptools wheel
           python -m pip download --dest wheelhouse -r runtime.in -r certification.in -r optional-redis.in
           python -m venv verify-venv
           verify-venv/bin/python -m pip install --no-index --find-links wheelhouse -r runtime.in -r certification.in -r optional-redis.in
