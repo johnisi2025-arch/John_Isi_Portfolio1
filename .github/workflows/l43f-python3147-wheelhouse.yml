@@ -18,7 +18,7 @@ jobs:
         with:
           python-version: '3.14.7'
           check-latest: true
-      - name: Resolve exact public dependency set
+      - name: Resolve exact public dependency set and hash locks
         shell: bash
         run: |
           set -euo pipefail
@@ -46,6 +46,7 @@ jobs:
           requests==2.32.5
           EOF
           cat > certification.in <<'EOF'
+          -r runtime.in
           pytest==8.3.5
           reportlab==4.4.9
           prometheus-client==0.25.0
@@ -55,14 +56,18 @@ jobs:
           cat > optional-redis.in <<'EOF'
           redis==7.4.1
           EOF
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade pip 'pip-tools==7.5.1'
+          python -m piptools compile --generate-hashes --resolver=backtracking --strip-extras -o runtime-py314.lock runtime.in
+          python -m piptools compile --generate-hashes --resolver=backtracking --strip-extras -o certification-py314.lock certification.in
+          python -m piptools compile --generate-hashes --resolver=backtracking --strip-extras -o optional-redis-py314.lock optional-redis.in
           mkdir -p wheelhouse
-          # PGPy 0.6.0 is sdist-only. Include its build dependencies so the
-          # offline verification environment can build the same source archive.
+          # PGPy 0.6.0 is sdist-only. Include build dependencies for the
+          # offline verification environment while keeping the application
+          # dependency set hash-locked.
           python -m pip download --dest wheelhouse setuptools wheel
-          python -m pip download --dest wheelhouse -r runtime.in -r certification.in -r optional-redis.in
+          python -m pip download --require-hashes --dest wheelhouse -r certification-py314.lock -r optional-redis-py314.lock
           python -m venv verify-venv
-          verify-venv/bin/python -m pip install --no-index --find-links wheelhouse -r runtime.in -r certification.in -r optional-redis.in
+          verify-venv/bin/python -m pip install --no-index --find-links wheelhouse --require-hashes -r certification-py314.lock -r optional-redis-py314.lock
           verify-venv/bin/python -m pip check | tee pip-check.txt
           verify-venv/bin/python -m pip freeze --all | sort -f > installed-freeze-py314.txt
           verify-venv/bin/python - <<'PY'
@@ -75,8 +80,19 @@ jobs:
                   rows.append({'name':n,'version':d.version})
           open('resolved-distributions.json','w').write(json.dumps({'python':sys.version,'platform':platform.platform(),'distributions':rows},indent=2,sort_keys=True)+'\n')
           PY
+          python - <<'PY'
+          import json, sys
+          from importlib import metadata
+          data={
+            'python': sys.version,
+            'pip': metadata.version('pip'),
+            'pip-tools': metadata.version('pip-tools'),
+          }
+          open('resolver-attestation.json','w').write(json.dumps(data,indent=2,sort_keys=True)+'\n')
+          PY
           sha256sum wheelhouse/* | sort -k2 > wheelhouse-sha256.txt
-          tar -czf l43f-python3147-public-wheelhouse.tar.gz wheelhouse runtime.in certification.in optional-redis.in pip-check.txt installed-freeze-py314.txt resolved-distributions.json wheelhouse-sha256.txt
+          sha256sum runtime-py314.lock certification-py314.lock optional-redis-py314.lock installed-freeze-py314.txt resolved-distributions.json resolver-attestation.json | sort -k2 > lock-evidence-sha256.txt
+          tar -czf l43f-python3147-public-wheelhouse.tar.gz wheelhouse runtime.in certification.in optional-redis.in runtime-py314.lock certification-py314.lock optional-redis-py314.lock pip-check.txt installed-freeze-py314.txt resolved-distributions.json resolver-attestation.json wheelhouse-sha256.txt lock-evidence-sha256.txt
           sha256sum l43f-python3147-public-wheelhouse.tar.gz > l43f-python3147-public-wheelhouse.tar.gz.sha256
       - name: Upload wheelhouse artifact
         uses: actions/upload-artifact@v4
