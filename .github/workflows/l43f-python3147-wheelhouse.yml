@@ -56,7 +56,10 @@ jobs:
           cat > optional-redis.in <<'EOF'
           redis==7.4.1
           EOF
-          python -m pip install --upgrade pip 'pip-tools==7.5.1'
+          # pip-tools 7.5.1 supports Python 3.14 with pip 25.2.x. pip 26.2
+          # removed an internal stdlib_pkgs symbol still imported by 7.5.1,
+          # so the resolver itself is explicitly pinned and attested.
+          python -m pip install --upgrade 'pip==25.2' 'pip-tools==7.5.1'
           python -m piptools compile --generate-hashes --resolver=backtracking --strip-extras -o runtime-py314.lock runtime.in
           python -m piptools compile --generate-hashes --resolver=backtracking --strip-extras -o certification-py314.lock certification.in
           python -m piptools compile --generate-hashes --resolver=backtracking --strip-extras -o optional-redis-py314.lock optional-redis.in
